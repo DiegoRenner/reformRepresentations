@@ -3,6 +3,12 @@
 version = 3
 
 [[package]]
+name = "bitstring"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22a39c0db600cfe77ef1b6d9ea71173bdccf190722877969d526d380519b6ecc"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -65,6 +71,7 @@ dependencies = [
 name = "reform_playground"
 version = "0.1.0"
 dependencies = [
+ "bitstring",
  "rand",
 ]
 
