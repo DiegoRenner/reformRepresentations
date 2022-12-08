@@ -7,7 +7,7 @@ use std::str;
 //use bitstring::BitLengthString;
 //use bitstring::FixedBitString;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Atom{
     Var(String, u32),
     Pow(bool, Box<(Atom, Atom)>),
@@ -338,6 +338,19 @@ fn enum_to_vecofbits_size(atom: Atom) -> (u32, Vec<u8>) {
     return (size,output)
 }
 
+// convert a vector of atoms from an enum to a vector of bits
+fn vecofenums_to_vecofbits_size(atoms: Vec<Atom>) -> (u32, Vec<u8>) {
+    let mut output_all: Vec<u8> = vec![];
+    let mut size_all: u32 = 0;
+    for atom in atoms {
+         let (size, mut output) = enum_to_vecofbits_size(atom);
+         output_all.append(&mut output);
+         size_all += size
+    }
+    (size_all, output_all)
+    
+}
+
 // convert an atom from a vector of bits to an enum
 fn vecofbits_to_enum_size(reader: &mut Cursor<Vec<u8>>) -> (u32,Atom) {
     let mut output: Atom;
@@ -387,6 +400,65 @@ fn vecofbits_to_enum_size(reader: &mut Cursor<Vec<u8>>) -> (u32,Atom) {
         (1,Atom::Num(reader.read_u8().unwrap() != 0,reader.read_u32::<LittleEndian>().unwrap()))
     }
 }
+
+fn vecofbits_to_vecofenums_size(size: u32, reader: &mut Cursor<Vec<u8>>) -> (u32,Vec<Atom>) {
+    let mut output: Vec<Atom> = vec![];
+    // depending on the type of atom add corresponding signature 
+    // and the content of the atom
+    // recursively call the function for atoms that contain atoms
+    //println!("{}",reader.read_u8().unwrap()==3);
+    let mut i: u32 = 0;
+    while i < size { 
+        let sig = reader.read_u8().unwrap();
+        //println!("{}", sig);
+        //println!("{:#?}",reader);
+        if sig == 0 {
+            output.push(Atom::Var(format!("var_{}",reader.read_u8().unwrap()),reader.read_u32::<LittleEndian>().unwrap()));
+            i += 1;
+        }
+        else if sig == 1 {
+            let flag = reader.read_u8().unwrap() != 0;
+            let size1 = reader.read_u32::<LittleEndian>().unwrap();
+            let (s1,atom1) = vecofbits_to_enum_size(reader);
+            let (s2,atom2) = vecofbits_to_enum_size(reader);
+            output.push(Atom::Pow(flag,Box::new((atom1,atom2))));
+            i += size1;
+        }
+        else if sig == 3 {
+            let flag = reader.read_u8().unwrap() != 0;
+            let name = format!("var_{}",reader.read_u8().unwrap());
+            let size1 = reader.read_u32::<LittleEndian>().unwrap();
+            let mut vect_of_atoms: Vec<Atom> = vec![];
+            let mut j: u32 = 0;
+            while j < size1-1 {
+                let (s,at) = vecofbits_to_enum_size(reader);
+                vect_of_atoms.push(at);
+                j += s
+            }
+            output.push(Atom::Fn(flag,name,vect_of_atoms));
+            i += size1;
+        }
+        else if sig == 5 {
+            let flag = reader.read_u8().unwrap()  != 0;
+            let size1 = reader.read_u32::<LittleEndian>().unwrap();
+            let mut vect_of_atoms: Vec<Atom> = vec![];
+            let mut j: u32 = 0;
+            while j < size1-1 {
+                let (s,at) = vecofbits_to_enum_size(reader);
+                vect_of_atoms.push(at);
+                j += s
+            }
+            output.push(Atom::Term(flag,vect_of_atoms));
+            i += size1;
+        }
+        else {
+            output.push(Atom::Num(reader.read_u8().unwrap() != 0,reader.read_u32::<LittleEndian>().unwrap()));
+            i += 1;
+        }
+    }
+    (size,output)
+}
+
 
 fn main() {
 
@@ -441,11 +513,11 @@ fn main() {
     let n4: usize = rng.gen_range(0..2);
     let final_at: Atom; 
     if n4 == 0 {
-        final_at = Atom::Fn(true,format!("var_{}",var_counter), prev_vec);
+        final_at = Atom::Fn(true,format!("var_{}",var_counter), prev_vec.clone());
     } else {
-        final_at = Atom::Term(true, prev_vec);
+        final_at = Atom::Term(true, prev_vec.clone());
     }
-    println!("{:#?}", final_at);
+    println!("{:#?}", prev_vec);
     
     // debugging prompts for enum_to_strofbits
     //println!("{}",enum_to_strofbits(Atom::Var("var_2".to_string(),84)));
@@ -465,7 +537,7 @@ fn main() {
 
     // convert to randomly generated atom to vector of bits with size signature
     //println!();
-    let (size, vec_of_bits_size) = enum_to_vecofbits_size(final_at.clone());
+    let (size, vec_of_bits_size) = vecofenums_to_vecofbits_size(prev_vec.clone());
     //for s in &vec_of_bits_size {
     //    print!("{}",format!("{s:08b}"))
     //}
@@ -483,9 +555,10 @@ fn main() {
     //}
 
     // deparse randomly generated atom and and compare to initial one
-    let (s, deparsed_enum) = vecofbits_to_enum_size(&mut Cursor::new(vec_of_bits_size.clone()));
+    let (s, deparsed_enum) = vecofbits_to_vecofenums_size(size,&mut Cursor::new(vec_of_bits_size.clone()));
     println!("{:#?}", deparsed_enum);
-    if matches!(deparsed_enum ,final_at) {
+
+    if deparsed_enum  == prev_vec {
         println!("parsing and deparsing succesful",)
     }
     
