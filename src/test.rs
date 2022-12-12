@@ -1,17 +1,16 @@
-
-use std::io::Cursor;
-use rand::Rng;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crate::atom::*;
 use crate::parser::*;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use rand::Rng;
+use std::io::Cursor;
 
 #[cfg(test)]
 mod tests {
-        // Note this useful idiom: importing names from outer (for mod tests) scope.
-        use super::*;
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
 
-        #[test]
-        fn test_add() {
+    #[test]
+    fn test_size() {
         // experiments with writing vector of bits
         //let mut buf: Vec<u8> = vec![];
         //buf.write_u32::<LittleEndian>(8);
@@ -118,7 +117,47 @@ mod tests {
         if deparsed_enum == prev_vec {
             println!("parsing and deparsing succesful",)
         }
-        assert_eq!(deparsed_enum,prev_vec);
+        assert_eq!(deparsed_enum, prev_vec);
     }
 
+    #[test]
+    fn test_argsize() {
+
+        let mut rng = rand::thread_rng();
+        // set parameters for generating random Atom
+        // maximum amount of elements per layer
+        let max_elements = 5;
+        // maximum amount of layers
+        let max_depth = 5;
+
+        // determine number of atoms in first layer
+        let n1: usize = rng.gen_range(1..max_elements);
+
+        // initialize first layer and global variable counter
+        let init_vec: Vec<Atom>;
+        let mut var_counter: usize = 0;
+        init_vec = gen_init_vec(n1, &mut var_counter);
+
+        // build random amount of layers using atoms of the previous ones
+        let mut prev_vec: Vec<Atom> = init_vec;
+        let n2: usize = rng.gen_range(1..max_depth);
+        for i in 0..n2 {
+            // build each layer with random amount of atoms
+            let n3: usize = rng.gen_range(1..max_elements);
+            prev_vec = gen_vec(n3, prev_vec, &mut var_counter);
+        }
+
+        // convert to randomly generated atom to vector of bits with size signature
+        let vec_of_bits_argsize = vecofenums_to_vecofbits_argsize(prev_vec.clone());
+
+        // deparse randomly generated atom and and compare to initial one
+        let deparsed_enum =
+            vecofbits_to_vecofenums_argsize(prev_vec.len().try_into().unwrap(), &mut Cursor::new(vec_of_bits_argsize.clone()));
+        println!("{:#?}", deparsed_enum);
+
+        if deparsed_enum == prev_vec {
+            println!("parsing and deparsing succesful",)
+        }
+        assert_eq!(deparsed_enum, prev_vec);
+    }
 }
