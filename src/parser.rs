@@ -310,3 +310,163 @@ pub fn vecofbits_to_vecofenums_size(size: u32, reader: &mut Cursor<Vec<u8>>) -> 
     }
     (size, output)
 }
+
+// convert an atom from an enum to a vector of bits
+pub fn enum_to_vecofbits_argsize(atom: Atom) -> Vec<u8> {
+    let mut output: Vec<u8> = vec![];
+    let mut size: u32 = 0;
+    // depending on the type of atom add corresponding signature
+    // and the content of the atom
+    // recursively call the function for atoms that contain atoms
+    if let Atom::Var(name, exponential) = atom.clone() {
+        //println!("This atom is a variable with name {} and exponential {}", name, exponential);
+        output.write_u8(VAR_START_SIG);
+        let name_int: u8 = (name[NAME_PREFIX_LEN..]).parse::<u8>().unwrap();
+        output.write_u8(name_int);
+        output.write_u32::<LittleEndian>(exponential);
+    } else if let Atom::Pow(flag, box_of_atoms) = atom.clone() {
+        //println!("This atom is a power with flag {} and box of atoms {:#?}", flag, box_of_atoms);
+        output.write_u8(POW_START_SIG);
+        let flag_int: u8 = flag as u8;
+        output.write_u8(flag_int);
+        let mut temp_output1 = enum_to_vecofbits_argsize((*box_of_atoms).0);
+        let mut temp_output2 = enum_to_vecofbits_argsize((*box_of_atoms).1);
+        output.write_u32::<LittleEndian>(size);
+        output.append(&mut temp_output1);
+        output.append(&mut temp_output2);
+    } else if let Atom::Fn(flag, name, vect_of_atoms) = atom.clone() {
+        //println!("This atom is a function with flag {}, name {}, and vector of atoms {:#?}", flag, name, vect_of_atoms);
+        output.write_u8(FN_START_SIG);
+        let flag_int: u8 = flag as u8;
+        output.write_u8(flag_int);
+        let name_int: u8 = (name[NAME_PREFIX_LEN..]).parse::<u8>().unwrap();
+        output.write_u8(name_int);
+        let mut temp_output_vec: Vec<u8> = vec![];
+        for a in vect_of_atoms.clone() {
+            let mut temp_output = enum_to_vecofbits_argsize(a);
+            temp_output_vec.append(&mut temp_output);
+        }
+        size = u32::try_from(vect_of_atoms.len()).unwrap();
+        output.write_u32::<LittleEndian>(size);
+        output.append(&mut temp_output_vec);
+    } else if let Atom::Term(flag, vect_of_atoms) = atom.clone() {
+        //println!("This atom is a term with flag {} and vector of atoms {:#?}", flag, vect_of_atoms);
+        output.write_u8(TERM_START_SIG);
+        let flag_int: u8 = flag as u8;
+        output.write_u8(flag_int);
+        let mut temp_output_vec: Vec<u8> = vec![];
+        for a in vect_of_atoms.clone() {
+            let mut temp_output = enum_to_vecofbits_argsize(a);
+            temp_output_vec.append(&mut temp_output);
+        }
+        size = u32::try_from(vect_of_atoms.len()).unwrap();
+        output.write_u32::<LittleEndian>(size);
+        output.append(&mut temp_output_vec);
+    } else if let Atom::Num(flag, value) = atom.clone() {
+        //println!("This atom is a number with flag {} and value {}", flag.to_string(), value.to_string());
+        output.write_u8(NUM_START_SIG);
+        let flag_int: u8 = flag as u8;
+        output.write_u8(flag_int);
+        output.write_u32::<LittleEndian>(value);
+    }
+    return output;
+}
+
+// convert a vector of atoms from an enum to a vector of bits
+pub fn vecofenums_to_vecofbits_argsize(atoms: Vec<Atom>) -> Vec<u8>{
+    let mut output_all: Vec<u8> = vec![];
+    for atom in atoms {
+        let mut output = enum_to_vecofbits_argsize(atom);
+        output_all.append(&mut output);
+    }
+    output_all
+
+}
+
+// convert an atom from a vector of bits to an enum
+pub fn vecofbits_to_enum_argsize(reader: &mut Cursor<Vec<u8>>) -> Atom {
+    let mut output: Atom = Atom::Num(false, 0);
+    let mut size: u32 = 0;
+    // depending on the type of atom add corresponding signature
+    // and the content of the atom
+    // recursively call the function for atoms that contain atoms
+    //println!("{}",reader.read_u8().unwrap()==3);
+    let sig = reader.read_u8().unwrap();
+    //println!("{}", sig);
+    //println!("{:#?}",reader);
+    if sig == VAR_START_SIG {
+        output = Atom::Var( format!("var_{}", reader.read_u8().unwrap()), reader.read_u32::<LittleEndian>().unwrap());
+    } else if sig == POW_START_SIG {
+        let flag = reader.read_u8().unwrap() != 0;
+        let atom1 = vecofbits_to_enum_argsize(reader);
+        let atom2= vecofbits_to_enum_argsize(reader);
+        output = Atom::Pow(flag, Box::new((atom1, atom2)));
+    } else if sig == FN_START_SIG {
+        let flag = reader.read_u8().unwrap() != 0;
+        let name = format!("var_{}", reader.read_u8().unwrap());
+        size = reader.read_u32::<LittleEndian>().unwrap();
+        let mut vect_of_atoms: Vec<Atom> = vec![];
+        for _i in 0..size {
+            let at = vecofbits_to_enum_argsize(reader);
+            vect_of_atoms.push(at);
+        }
+        output = Atom::Fn(flag, name, vect_of_atoms);
+    } else if sig == TERM_START_SIG {
+        let flag = reader.read_u8().unwrap() != 0;
+        size = reader.read_u32::<LittleEndian>().unwrap();
+        let mut vect_of_atoms: Vec<Atom> = vec![];
+        for _i in 0..size {
+            let at = vecofbits_to_enum_argsize(reader);
+            vect_of_atoms.push(at);
+        }
+        output = Atom::Term(flag, vect_of_atoms);
+    } else if sig == NUM_START_SIG {
+        output = Atom::Num( reader.read_u8().unwrap() != 0, reader.read_u32::<LittleEndian>().unwrap());
+    }
+    output
+    
+}
+
+// TODO: use iterator to get size instead of passing it as argument
+pub fn vecofbits_to_vecofenums_argsize(size: u32, reader: &mut Cursor<Vec<u8>>) -> Vec<Atom> {
+    let mut output: Vec<Atom> = vec![];
+    // depending on the type of atom add corresponding signature
+    // and the content of the atom
+    // recursively call the function for atoms that contain atoms
+    //println!("{}",reader.read_u8().unwrap()==3);
+    for _j in 0..size{
+        let sig = reader.read_u8().unwrap();
+        //println!("{}", sig);
+        //println!("{:#?}",reader);
+        if sig == VAR_START_SIG {
+            output.push(Atom::Var( format!("var_{}", reader.read_u8().unwrap()), reader.read_u32::<LittleEndian>().unwrap()));
+        } else if sig == POW_START_SIG {
+            let flag = reader.read_u8().unwrap() != 0;
+            let atom1 = vecofbits_to_enum_argsize(reader);
+            let atom2= vecofbits_to_enum_argsize(reader);
+            output.push(Atom::Pow(flag, Box::new((atom1, atom2))));
+        } else if sig == FN_START_SIG {
+            let flag = reader.read_u8().unwrap() != 0;
+            let name = format!("var_{}", reader.read_u8().unwrap());
+            let size1 = reader.read_u32::<LittleEndian>().unwrap();
+            let mut vect_of_atoms: Vec<Atom> = vec![];
+            for _i in 0..size1 {
+                let at = vecofbits_to_enum_argsize(reader);
+                vect_of_atoms.push(at);
+            }
+            output.push(Atom::Fn(flag, name, vect_of_atoms));
+        } else if sig == TERM_START_SIG {
+            let flag = reader.read_u8().unwrap() != 0;
+            let size1 = reader.read_u32::<LittleEndian>().unwrap();
+            let mut vect_of_atoms: Vec<Atom> = vec![];
+            for _i in 0..size1 {
+                let at = vecofbits_to_enum_argsize(reader);
+                vect_of_atoms.push(at);
+            }
+            output.push(Atom::Term(flag, vect_of_atoms));
+        } else if sig == NUM_START_SIG {
+            output.push(Atom::Num( reader.read_u8().unwrap() != 0, reader.read_u32::<LittleEndian>().unwrap()));
+        }
+    }
+    output
+}
